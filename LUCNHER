@@ -1,0 +1,59 @@
+import customtkinter as ctk
+import requests, zipfile, io, os, subprocess
+
+# Görünüm Ayarları
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+class Launcher(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("Pasha Game Launcher")
+        self.geometry("500x300")
+
+        # Arayüz Elemanları
+        self.label = ctk.CTkLabel(self, text="Pasha Proje Başlatıcı", font=("Arial", 20, "bold"))
+        self.label.pack(pady=20)
+
+        self.status_label = ctk.CTkLabel(self, text="Durum: Hazır", text_color="gray")
+        self.status_label.pack(pady=5)
+
+        self.progress = ctk.CTkProgressBar(self, width=400)
+        self.progress.set(0)
+        self.progress.pack(pady=20)
+
+        self.btn = ctk.CTkButton(self, text="OYUNU KUR VE BAŞLAT", command=self.start_install, 
+                                 width=200, height=50, font=("Arial", 14, "bold"))
+        self.btn.pack(pady=20)
+
+    def start_install(self):
+        self.btn.configure(state="disabled")
+        self.status_label.configure(text="Dosyalar indiriliyor...", text_color="yellow")
+        
+        # GitHub Linkin
+        url = "https://github.com/FahrettinPasha/proje-adi/archive/refs/heads/main.zip"
+        path = os.path.join(os.environ['APPDATA'], "PashaOyun")
+        
+        try:
+            # İndirme ve Zipten Çıkarma
+            r = requests.get(url)
+            z = zipfile.ZipFile(io.BytesIO(r.content))
+            
+            if not os.path.exists(path): os.makedirs(path)
+            z.extractall(path)
+            
+            self.progress.set(1)
+            self.status_label.configure(text="Kurulum Tamamlandı!", text_color="green")
+            
+            # Oyunu Başlat (EXE adını kontrol et)
+            exe_path = os.path.join(path, "proje-adi-main", "oyun.exe")
+            subprocess.Popen(exe_path)
+            
+        except Exception as e:
+            self.status_label.configure(text=f"Hata: {str(e)}", text_color="red")
+        
+        self.btn.configure(state="normal")
+
+if __name__ == "__main__":
+    app = Launcher()      
+    app.mainloop()
