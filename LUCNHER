@@ -1,85 +1,78 @@
 import customtkinter as ctk
-import requests, zipfile, io, os, subprocess, threading
-
-# Görünüm Ayarları
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+import requests, zipfile, io, os, subprocess, threading, sys
 
 class Launcher(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Pasha Game Launcher")
-        self.geometry("500x350")
-        self.resizable(False, False)
+        self.title("Infinite Dash Runner - Kurulum Sihirbazı")
+        self.geometry("500x400")
+        
+        # Arayüz
+        self.label = ctk.CTkLabel(self, text="Infinite Dash Runner", font=("Arial", 26, "bold"))
+        self.label.pack(pady=30)
 
-        # Arayüz Elemanları
-        self.label = ctk.CTkLabel(self, text="Pasha Proje Başlatıcı", font=("Arial", 24, "bold"))
-        self.label.pack(pady=20)
-
-        self.status_label = ctk.CTkLabel(self, text="Durum: Hazır", text_color="gray")
-        self.status_label.pack(pady=5)
+        self.status_label = ctk.CTkLabel(self, text="Başlamak için butona tıklayın", text_color="white")
+        self.status_label.pack(pady=10)
 
         self.progress = ctk.CTkProgressBar(self, width=400)
         self.progress.set(0)
         self.progress.pack(pady=20)
 
-        self.btn = ctk.CTkButton(self, text="OYUNU KUR VE BAŞLAT", command=self.run_install_thread, 
-                                 width=200, height=50, font=("Arial", 14, "bold"))
-        self.btn.pack(pady=20)
+        self.btn = ctk.CTkButton(self, text="OYUNU YÜKLE VE AÇ", command=self.start_thread, 
+                                 width=250, height=60, font=("Arial", 16, "bold"))
+        self.btn.pack(pady=30)
 
-    def run_install_thread(self):
-        # Arayüzün donmaması için indirme işlemini ayrı bir kolda (thread) başlatıyoruz
-        thread = threading.Thread(target=self.start_install)
-        thread.start()
-
-    def start_install(self):
+    def start_thread(self):
         self.btn.configure(state="disabled")
-        self.status_label.configure(text="Dosyalar indiriliyor...", text_color="yellow")
-        self.progress.set(0.2)
-        
-        # GitHub Linkin
-        url = "https://github.com/FahrettinPasha/proje-adi/archive/refs/heads/main.zip"
-        path = os.path.join(os.environ['APPDATA'], "PashaOyun")
-        
-        try:
-            # İndirme İşlemi
-            response = requests.get(url, timeout=15)
-            response.raise_for_status() # HTTP hatalarını kontrol et
-            
-            self.progress.set(0.5)
-            self.status_label.configure(text="Zipten çıkarılıyor...", text_color="cyan")
-            
-            # Zipten Çıkarma
-            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                if not os.path.exists(path): 
-                    os.makedirs(path)
-                z.extractall(path)
-            
-            self.progress.set(0.8)
-            self.status_label.configure(text="Kurulum Tamamlandı!", text_color="green")
-            
-            # Dinamik EXE Yolu Kontrolü
-            # (Zip içindeki klasör isminden bağımsız olarak exe'yi bulmaya çalışır)
-            exe_name = "oyun.exe"
-            exe_path = ""
-            for root, dirs, files in os.walk(path):
-                if exe_name in files:
-                    exe_path = os.path.join(root, exe_name)
-                    break
+        threading.Thread(target=self.installer, daemon=True).start()
 
-            if exe_path:
-                self.status_label.configure(text="Oyun Başlatılıyor...", text_color="white")
-                self.progress.set(1)
-                subprocess.Popen(exe_path, cwd=os.path.dirname(exe_path)) # Çalışma dizinini set etmek önemli
+    def installer(self):
+        url = "https://github.com/FahrettinPasha/Infinite-Dash-Runner-Pygame/archive/refs/heads/main.zip"
+        # Kullanıcının görmeyeceği, güvenli bir klasör
+        base_path = os.path.join(os.environ['APPDATA'], "PashaGames")
+        game_dir = os.path.join(base_path, "InfiniteDash")
+
+        try:
+            # 1. Klasör Hazırlığı
+            if not os.path.exists(game_dir):
+                os.makedirs(game_dir)
+
+            # 2. İndirme
+            self.status_label.configure(text="Bulut sunucuya bağlanılıyor...", text_color="yellow")
+            r = requests.get(url, timeout=20)
+            self.progress.set(0.3)
+
+            # 3. Dosyaları Çıkarma
+            self.status_label.configure(text="Dosyalar paketinden çıkarılıyor...", text_color="cyan")
+            with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+                z.extractall(game_dir)
+            self.progress.set(0.6)
+
+            # 4. Bağımlılıkları Sessizce Kur (En kritik nokta!)
+            self.status_label.configure(text="Sistem bileşenleri kontrol ediliyor...", text_color="orange")
+            # --quiet parametresi ile kullanıcı siyah ekran görmez
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "pygame", "--quiet"])
+            self.progress.set(0.8)
+
+            # 5. Oyunu Başlat
+            # Klasör ismini GitHub'ın verdiği yapıya göre buluyoruz
+            main_folder = os.path.join(game_dir, "Infinite-Dash-Runner-Pygame-main")
+            main_py = os.path.join(main_folder, "main.py")
+
+            if os.path.exists(main_py):
+                self.status_label.configure(text="Oyun başlatılıyor! İyi oyunlar.", text_color="green")
+                self.progress.set(1.0)
+                subprocess.Popen([sys.executable, main_py], cwd=main_folder)
+                # İsteğe bağlı: Oyun açılınca launcher kapansın istiyorsan:
+                # self.after(3000, self.destroy) 
             else:
-                raise FileNotFoundError(f"{exe_name} dosyası bulunamadı!")
-            
+                self.status_label.configure(text="Hata: Dosyalar eksik indi!", text_color="red")
+
         except Exception as e:
-            self.status_label.configure(text=f"Hata: {str(e)}", text_color="red")
-            self.progress.set(0)
-        
-        self.btn.configure(state="normal")
+            self.status_label.configure(text=f"Bağlantı Hatası! İnterneti kontrol edin.", text_color="red")
+        finally:
+            self.btn.configure(state="normal")
 
 if __name__ == "__main__":
-    app = Launcher()      
+    app = Launcher()
     app.mainloop()
