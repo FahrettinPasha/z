@@ -1,5 +1,5 @@
 import customtkinter as ctk
-import requests, zipfile, io, os, subprocess
+import requests, zipfile, io, os, subprocess, threading
 
 # Görünüm Ayarları
 ctk.set_appearance_mode("dark")
@@ -9,10 +9,11 @@ class Launcher(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Pasha Game Launcher")
-        self.geometry("500x300")
+        self.geometry("500x350")
+        self.resizable(False, False)
 
         # Arayüz Elemanları
-        self.label = ctk.CTkLabel(self, text="Pasha Proje Başlatıcı", font=("Arial", 20, "bold"))
+        self.label = ctk.CTkLabel(self, text="Pasha Proje Başlatıcı", font=("Arial", 24, "bold"))
         self.label.pack(pady=20)
 
         self.status_label = ctk.CTkLabel(self, text="Durum: Hazır", text_color="gray")
@@ -22,35 +23,60 @@ class Launcher(ctk.CTk):
         self.progress.set(0)
         self.progress.pack(pady=20)
 
-        self.btn = ctk.CTkButton(self, text="OYUNU KUR VE BAŞLAT", command=self.start_install, 
+        self.btn = ctk.CTkButton(self, text="OYUNU KUR VE BAŞLAT", command=self.run_install_thread, 
                                  width=200, height=50, font=("Arial", 14, "bold"))
         self.btn.pack(pady=20)
+
+    def run_install_thread(self):
+        # Arayüzün donmaması için indirme işlemini ayrı bir kolda (thread) başlatıyoruz
+        thread = threading.Thread(target=self.start_install)
+        thread.start()
 
     def start_install(self):
         self.btn.configure(state="disabled")
         self.status_label.configure(text="Dosyalar indiriliyor...", text_color="yellow")
+        self.progress.set(0.2)
         
         # GitHub Linkin
         url = "https://github.com/FahrettinPasha/proje-adi/archive/refs/heads/main.zip"
         path = os.path.join(os.environ['APPDATA'], "PashaOyun")
         
         try:
-            # İndirme ve Zipten Çıkarma
-            r = requests.get(url)
-            z = zipfile.ZipFile(io.BytesIO(r.content))
+            # İndirme İşlemi
+            response = requests.get(url, timeout=15)
+            response.raise_for_status() # HTTP hatalarını kontrol et
             
-            if not os.path.exists(path): os.makedirs(path)
-            z.extractall(path)
+            self.progress.set(0.5)
+            self.status_label.configure(text="Zipten çıkarılıyor...", text_color="cyan")
             
-            self.progress.set(1)
+            # Zipten Çıkarma
+            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                if not os.path.exists(path): 
+                    os.makedirs(path)
+                z.extractall(path)
+            
+            self.progress.set(0.8)
             self.status_label.configure(text="Kurulum Tamamlandı!", text_color="green")
             
-            # Oyunu Başlat (EXE adını kontrol et)
-            exe_path = os.path.join(path, "proje-adi-main", "oyun.exe")
-            subprocess.Popen(exe_path)
+            # Dinamik EXE Yolu Kontrolü
+            # (Zip içindeki klasör isminden bağımsız olarak exe'yi bulmaya çalışır)
+            exe_name = "oyun.exe"
+            exe_path = ""
+            for root, dirs, files in os.walk(path):
+                if exe_name in files:
+                    exe_path = os.path.join(root, exe_name)
+                    break
+
+            if exe_path:
+                self.status_label.configure(text="Oyun Başlatılıyor...", text_color="white")
+                self.progress.set(1)
+                subprocess.Popen(exe_path, cwd=os.path.dirname(exe_path)) # Çalışma dizinini set etmek önemli
+            else:
+                raise FileNotFoundError(f"{exe_name} dosyası bulunamadı!")
             
         except Exception as e:
             self.status_label.configure(text=f"Hata: {str(e)}", text_color="red")
+            self.progress.set(0)
         
         self.btn.configure(state="normal")
 
