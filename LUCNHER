@@ -1,78 +1,127 @@
 import customtkinter as ctk
-import requests, zipfile, io, os, subprocess, threading, sys
+import requests, zipfile, io, os, threading, sys, platform, subprocess, logging, json
 
+# ---- WINDOWS KONTROLÜ ----
+if platform.system() != "Windows":
+    raise SystemExit("This launcher is Windows-only.")
+
+# ---- SABİTLER ----
+APP_NAME = "Infinite Dash Runner"
+VERSION_URL = "https://raw.githubusercontent.com/FahrettinPasha/Infinite-Dash-Runner-Pygame/main/version.json"
+
+BASE_DIR = os.path.join(os.getenv("APPDATA"), "PashaGames", "InfiniteDash")
+GAME_DIR = os.path.join(BASE_DIR, "game")
+VERSION_FILE = os.path.join(BASE_DIR, "version.txt")
+LOG_FILE = os.path.join(BASE_DIR, "install.log")
+
+GAME_FOLDER_NAME = "Infinite-Dash-Runner-Pygame-main"
+GAME_MAIN = os.path.join(GAME_DIR, GAME_FOLDER_NAME, "main.py")
+
+os.makedirs(GAME_DIR, exist_ok=True)
+
+logging.basicConfig(filename=LOG_FILE, level=logging.ERROR)
+
+# ---- LAUNCHER ----
 class Launcher(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Infinite Dash Runner - Kurulum Sihirbazı")
-        self.geometry("500x400")
-        
-        # Arayüz
-        self.label = ctk.CTkLabel(self, text="Infinite Dash Runner", font=("Arial", 26, "bold"))
-        self.label.pack(pady=30)
+        self.title(APP_NAME)
+        self.geometry("520x420")
 
-        self.status_label = ctk.CTkLabel(self, text="Başlamak için butona tıklayın", text_color="white")
-        self.status_label.pack(pady=10)
+        self.title_lbl = ctk.CTkLabel(self, text=APP_NAME, font=("Arial", 26, "bold"))
+        self.title_lbl.pack(pady=30)
 
-        self.progress = ctk.CTkProgressBar(self, width=400)
+        self.status = ctk.CTkLabel(self, text="Hazır", text_color="white")
+        self.status.pack(pady=10)
+
+        self.progress = ctk.CTkProgressBar(self, width=420)
         self.progress.set(0)
         self.progress.pack(pady=20)
 
-        self.btn = ctk.CTkButton(self, text="OYUNU YÜKLE VE AÇ", command=self.start_thread, 
-                                 width=250, height=60, font=("Arial", 16, "bold"))
+        self.btn = ctk.CTkButton(
+            self,
+            text="OYUNU BAŞLAT",
+            width=260,
+            height=60,
+            font=("Arial", 16, "bold"),
+            command=self.start
+        )
         self.btn.pack(pady=30)
 
-    def start_thread(self):
+    # ---- UI SAFE ----
+    def ui(self, text, color="white", value=None):
+        self.after(0, lambda: self.status.configure(text=text, text_color=color))
+        if value is not None:
+            self.after(0, lambda: self.progress.set(value))
+
+    def start(self):
         self.btn.configure(state="disabled")
-        threading.Thread(target=self.installer, daemon=True).start()
+        threading.Thread(target=self.run, daemon=True).start()
 
-    def installer(self):
-        url = "https://github.com/FahrettinPasha/Infinite-Dash-Runner-Pygame/archive/refs/heads/main.zip"
-        # Kullanıcının görmeyeceği, güvenli bir klasör
-        base_path = os.path.join(os.environ['APPDATA'], "PashaGames")
-        game_dir = os.path.join(base_path, "InfiniteDash")
-
+    def run(self):
         try:
-            # 1. Klasör Hazırlığı
-            if not os.path.exists(game_dir):
-                os.makedirs(game_dir)
-
-            # 2. İndirme
-            self.status_label.configure(text="Bulut sunucuya bağlanılıyor...", text_color="yellow")
-            r = requests.get(url, timeout=20)
-            self.progress.set(0.3)
-
-            # 3. Dosyaları Çıkarma
-            self.status_label.configure(text="Dosyalar paketinden çıkarılıyor...", text_color="cyan")
-            with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-                z.extractall(game_dir)
-            self.progress.set(0.6)
-
-            # 4. Bağımlılıkları Sessizce Kur (En kritik nokta!)
-            self.status_label.configure(text="Sistem bileşenleri kontrol ediliyor...", text_color="orange")
-            # --quiet parametresi ile kullanıcı siyah ekran görmez
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "pygame", "--quiet"])
-            self.progress.set(0.8)
-
-            # 5. Oyunu Başlat
-            # Klasör ismini GitHub'ın verdiği yapıya göre buluyoruz
-            main_folder = os.path.join(game_dir, "Infinite-Dash-Runner-Pygame-main")
-            main_py = os.path.join(main_folder, "main.py")
-
-            if os.path.exists(main_py):
-                self.status_label.configure(text="Oyun başlatılıyor! İyi oyunlar.", text_color="green")
-                self.progress.set(1.0)
-                subprocess.Popen([sys.executable, main_py], cwd=main_folder)
-                # İsteğe bağlı: Oyun açılınca launcher kapansın istiyorsan:
-                # self.after(3000, self.destroy) 
-            else:
-                self.status_label.configure(text="Hata: Dosyalar eksik indi!", text_color="red")
-
+            self.check_update()
+            self.launch_game()
         except Exception as e:
-            self.status_label.configure(text=f"Bağlantı Hatası! İnterneti kontrol edin.", text_color="red")
+            logging.error(str(e))
+            self.ui("Hata oluştu. install.log kontrol edin.", "red")
         finally:
-            self.btn.configure(state="normal")
+            self.after(0, lambda: self.btn.configure(state="normal"))
 
+    # ---- UPDATE SYSTEM ----
+    def check_update(self):
+        self.ui("Güncellemeler kontrol ediliyor...", "yellow", 0.1)
+
+        r = requests.get(VERSION_URL, timeout=15)
+        if r.status_code != 200:
+            raise Exception("Version check failed")
+
+        data = r.json()
+        remote_version = data["version"]
+        zip_url = data["zip_url"]
+
+        local_version = "0.0.0"
+        if os.path.exists(VERSION_FILE):
+            with open(VERSION_FILE, "r") as f:
+                local_version = f.read().strip()
+
+        if remote_version != local_version:
+            self.download_update(zip_url, remote_version)
+        else:
+            self.ui("Oyun güncel", "green", 0.3)
+
+    def download_update(self, url, version):
+        self.ui("Güncelleme indiriliyor...", "orange", 0.4)
+
+        r = requests.get(url, timeout=30)
+        if r.status_code != 200:
+            raise Exception("Download failed")
+
+        self.ui("Kuruluyor...", "cyan", 0.7)
+
+        if os.path.exists(GAME_DIR):
+            for root, dirs, files in os.walk(GAME_DIR):
+                for file in files:
+                    os.remove(os.path.join(root, file))
+
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            z.extractall(GAME_DIR)
+
+        with open(VERSION_FILE, "w") as f:
+            f.write(version)
+
+        self.ui("Güncelleme tamamlandı", "green", 1.0)
+
+    # ---- GAME LAUNCH ----
+    def launch_game(self):
+        if not os.path.exists(GAME_MAIN):
+            raise Exception("Game not found")
+
+        self.ui("Oyun başlatılıyor...", "green", 1.0)
+        subprocess.Popen([sys.executable, GAME_MAIN], cwd=os.path.dirname(GAME_MAIN))
+        self.after(1500, self.destroy)
+
+# ---- RUN ----
 if __name__ == "__main__":
     app = Launcher()
     app.mainloop()
