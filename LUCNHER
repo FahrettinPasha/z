@@ -119,6 +119,37 @@ class Launcher(ctk.CTk):
     def download(self, url, version):
         if self.stop_flag.is_set(): return
 
+        self.log(f"Bağlantı kuruluyor: {url}")
+        try:
+            # allow_redirects=True ekledik ve stream başlattık
+            r = requests.get(url, stream=True, timeout=60, verify=False, allow_redirects=True)
+            
+            # Bazı sunucular küçük harf kullanabilir veya hiç göndermeyebilir
+            total = int(r.headers.get("content-length", r.headers.get("Content-Length", 0)))
+            
+            if total == 0:
+                self.log("Uyarı: Dosya boyutu alınamadı, yüzde hesaplanamıyor...")
+
+            chunk_size = 8192
+            downloaded = 0
+            data = io.BytesIO()
+
+            for chunk in r.iter_content(chunk_size=chunk_size):
+                if self.stop_flag.is_set():
+                    self.log("İndirme durduruldu.")
+                    return
+                if chunk:
+                    data.write(chunk)
+                    downloaded += len(chunk)
+                    
+                    if total > 0:
+                        percent = (downloaded / total) * 100
+                        # Her chunk'ta log basmak yerine sadece tam sayılarda basarak kirliliği önleyebilirsin
+                        self.log(f"İndiriliyor: {downloaded}/{total} byte ({percent:.1f}%)")
+                    else:
+                        self.log(f"İndiriliyor: {downloaded} byte (Toplam boyut bilinmiyor)")
+
+            self.log("ZIP indirildi. Kurulum başlatılıyor...")
         self.log(f"ZIP indiriliyor: {url}")
         try:
             r = requests.get(url, stream=True, timeout=60, verify=False)
